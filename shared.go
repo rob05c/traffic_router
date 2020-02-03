@@ -184,7 +184,7 @@ func BuildDSServersFromCRConfig(crc *tc.CRConfig) (map[tc.DeliveryServiceName]ma
 					dsServer := dsServers[dsName][cg]
 					dsServer.V4s = append(dsServer.V4s, DNSDSServer{
 						HostName: tc.CacheName(serverName),
-						Addr:     *server.Ip,
+						Addr:     ip.String(),
 						Status:   tc.CacheStatus(*server.ServerStatus),
 					})
 					dsServers[dsName][cg] = dsServer
@@ -200,7 +200,7 @@ func BuildDSServersFromCRConfig(crc *tc.CRConfig) (map[tc.DeliveryServiceName]ma
 					dsServer := dsServers[dsName][cg]
 					dsServer.V6s = append(dsServer.V6s, DNSDSServer{
 						HostName: tc.CacheName(serverName),
-						Addr:     *server.Ip6,
+						Addr:     ip.String(),
 						Status:   tc.CacheStatus(*server.ServerStatus),
 					})
 					dsServers[dsName][cg] = dsServer
@@ -229,4 +229,41 @@ func BuildServerAvailableFromCRStates(crs *tc.CRStates) map[tc.CacheName]bool {
 		avail[cacheName] = isAvail.IsAvailable
 	}
 	return avail
+}
+
+// GetServerForDomain returns the IP of the server, whether to immediately return a refused (because the domain was not in the DS list), and whether to return a SERVFAIL (because there was a server error looking up the DS). Error messages are logged.
+// TODO NXDOMAIN instead of refusing if it's a CDN domain e.g. top.comcast.net but just a nonexistent DS?
+// TODO make member of Shared?
+func (sh *Shared) GetServerForDomain(addr net.Addr, zone string, domain string, v4 bool) (string, bool, bool) {
+	dsName, ok := matchFQDN(domain, sh.matches)
+	if !ok {
+		fmt.Printf("EVENT: Request: %v czf zone '%v' requested A '%v' ds (%v %v) - no match, returning Refused\n", addr.String(), zone, domain, dsName, ok)
+		return "", true, false // "", refuse, no servfail
+	}
+
+	dsServers, ok := sh.dsServers[dsName]
+	if !ok {
+		// should never happen (we found a match, but it wasn't in the list of ds servers
+		fmt.Printf("EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but not in dsServers! should never happen! Returning ServFail\n", addr.String(), zone, domain, dsName, ok)
+		return "", false, true // "", no refuse, servfail
+	}
+
+	cg := tc.CacheGroupName(zone)
+	cgServers, ok := dsServers[cg]
+	if !ok {
+		// we found a match, but there were no servers in the found cachegroup with an Edge on this DS.
+		fmt.Printf("EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but the requested DS had no servers in the matched cachegroup! Returning ServFail", addr.String(), zone, domain, dsName)
+		return "", false, true // "", no refuse, servfail
+	}
+
+	dsServer, ok := getServer(cgServers, v4, sh.serverAvailable)
+	if !ok {
+		// we found a match, but there were no servers of the requested IP type on the CG assigned to the DS.
+		fmt.Printf("EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but no servers of type IPv4=%v in the cg on the ds! Returning ServFail\n", addr.String(), zone, domain, dsName, ok, v4)
+		return "", false, true // "", no refuse, servfail
+	}
+
+	fmt.Printf("EVENT: Request: '%v' czf zone '%v' requested A '%v' ds '%v' matched server '%+v', returning\n", addr.String(), zone, domain, dsName, dsServer)
+
+	return dsServer.Addr, false, false // addr, no refuse, no servfail
 }

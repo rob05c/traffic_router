@@ -15,75 +15,110 @@ type Handler struct {
 }
 
 func (ha *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	addr := w.RemoteAddr()
+	clientAddr := w.RemoteAddr()
+
+	zone := "" // zone == cachegroup
+	if ipStr, _, err := net.SplitHostPort(clientAddr.String()); err != nil {
+		// TODO SERVFAIL here
+		fmt.Println("ERROR: failed to split client ip:port '" + clientAddr.String() + "', czf zone will be empty: " + err.Error())
+	} else if ip := net.ParseIP(ipStr); ip == nil {
+		// TODO SERVFAIL here
+		fmt.Println("ERROR: failed to parse client ip '" + ipStr + "' addr '" + clientAddr.String() + "', czf zone will be empty")
+	} else {
+		zone = ha.Shared.GetCZF().GetZone(ip)
+	}
 
 	msg := dns.Msg{}
 	msg.SetReply(r)
-	switch r.Question[0].Qtype {
-	case dns.TypeA:
-		domain := msg.Question[0].Name
-
-		zone := "" // zone == cachegroup
-		isIPv4 := true
-		if ipStr, _, err := net.SplitHostPort(addr.String()); err != nil {
-			// TODO SERVFAIL here
-			fmt.Println("ERROR: failed to split client ip:port '" + addr.String() + "', czf zone will be empty: " + err.Error())
-		} else if ip := net.ParseIP(ipStr); ip == nil {
-			// TODO SERVFAIL here
-			fmt.Println("ERROR: failed to parse client ip '" + ipStr + "' addr '" + addr.String() + "', czf zone will be empty")
-		} else {
-			isIPv4 = ip.To4() != nil
-			zone = ha.Shared.GetCZF().GetZone(ip)
-		}
-
-		dsName, ok := matchFQDN(domain, ha.Shared.matches)
-		if !ok {
-			fmt.Printf(`EVENT: Request: %v czf zone %v requested A %v ds (%v %v) - no match, returning Refused`, addr.String(), zone, domain, dsName, ok)
+	for _, question := range r.Question {
+		domain := question.Name
+		switch question.Qtype {
+		case dns.TypeA:
+			v4 := true // A record => v4
+			serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+			if servFail {
+				msg.Rcode = dns.RcodeServerFailure
+				w.WriteMsg(&msg)
+				return
+			} else if refuse {
+				msg.Rcode = dns.RcodeRefused
+				w.WriteMsg(&msg)
+				return
+			}
+			msg.Answer = append(msg.Answer, &dns.A{
+				// TODO CRConfig ttl
+				Hdr: dns.RR_Header{Name: domain, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+				A:   net.ParseIP(serverAddr), // TODO change DNSDSServer to store IP
+			})
+		case dns.TypeAAAA:
+			v4 := false // A record => v4
+			serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+			if servFail {
+				msg.Rcode = dns.RcodeServerFailure
+				w.WriteMsg(&msg)
+				return
+			} else if refuse {
+				msg.Rcode = dns.RcodeRefused
+				w.WriteMsg(&msg)
+				return
+			}
+			ip := net.ParseIP(serverAddr)
+			fmt.Println("aaaa ip '" + ip.String() + "'")
+			msg.Answer = append(msg.Answer, &dns.AAAA{
+				// TODO CRConfig ttl
+				Hdr:  dns.RR_Header{Name: domain, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+				AAAA: net.ParseIP(serverAddr), // TODO change DNSDSServer to store IP
+			})
+		case dns.TypeANY:
+			// TODO remove duplicate code
+			{
+				v4 := true // A record => v4
+				serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+				if servFail {
+					msg.Rcode = dns.RcodeServerFailure
+					w.WriteMsg(&msg)
+					return
+				} else if refuse {
+					msg.Rcode = dns.RcodeRefused
+					w.WriteMsg(&msg)
+					return
+				}
+				msg.Answer = append(msg.Answer, &dns.A{
+					// TODO CRConfig ttl
+					Hdr: dns.RR_Header{Name: domain, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+					A:   net.ParseIP(serverAddr), // TODO change DNSDSServer to store IP
+				})
+			}
+			{
+				v4 := false // A record => v4
+				serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+				if servFail {
+					msg.Rcode = dns.RcodeServerFailure
+					w.WriteMsg(&msg)
+					return
+				} else if refuse {
+					msg.Rcode = dns.RcodeRefused
+					w.WriteMsg(&msg)
+					return
+				}
+				ip := net.ParseIP(serverAddr)
+				fmt.Println("aaaa ip '" + ip.String() + "'")
+				msg.Answer = append(msg.Answer, &dns.AAAA{
+					// TODO CRConfig ttl
+					Hdr:  dns.RR_Header{Name: domain, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
+					AAAA: net.ParseIP(serverAddr), // TODO change DNSDSServer to store IP
+				})
+			}
+		default:
+			fmt.Println("EVENT: Request: " + clientAddr.String() + " requested: unhandled type") // TODO event log
 			msg.Rcode = dns.RcodeRefused
 			w.WriteMsg(&msg)
 			return
 		}
-
-		dsServers, ok := ha.Shared.dsServers[dsName]
-		if !ok {
-			// should never happen (we found a match, but it wasn't in the list of ds servers
-			fmt.Printf(`EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but not in dsServers! should never happen! Returning ServFail`, addr.String(), zone, domain, dsName, ok)
-			msg.Rcode = dns.RcodeServerFailure
-			w.WriteMsg(&msg)
-			return
-		}
-
-		cg := tc.CacheGroupName(zone)
-		cgServers, ok := dsServers[cg]
-		if !ok {
-			// we found a match, but there were no servers in the found cachegroup with an Edge on this DS.
-			fmt.Printf(`EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but the requested DS had no servers in the matched cachegruopo! Returning ServFail`, addr.String(), zone, domain, dsName)
-			msg.Rcode = dns.RcodeServerFailure
-			w.WriteMsg(&msg)
-			return
-		}
-
-		dsServer, ok := getServer(cgServers, isIPv4, ha.Shared.serverAvailable)
-		if !ok {
-			// we found a match, but there were no servers of the requested IP type on the CG assigned to the DS.
-			fmt.Printf(`EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but no servers of type IPv4=%v in the cg on the ds! Returning ServFail`, addr.String(), zone, domain, dsName, ok, isIPv4)
-			msg.Rcode = dns.RcodeServerFailure
-			w.WriteMsg(&msg)
-			return
-		}
-
-		msg.Authoritative = true
-		msg.Answer = append(msg.Answer, &dns.A{
-			Hdr: dns.RR_Header{Name: domain, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
-			A:   net.ParseIP(dsServer.Addr), // TODO change DNSDSServer to store IP
-		})
-		w.WriteMsg(&msg)
-		return
-	default:
-		fmt.Println("EVENT: Request: " + addr.String() + " requested: unhandled type") // TODO event log
-		w.WriteMsg(&msg)
-		return
 	}
+
+	msg.Authoritative = true
+	w.WriteMsg(&msg)
 }
 
 func matchFQDN(fqdn string, matches []DSAndMatch) (tc.DeliveryServiceName, bool) {
@@ -106,6 +141,7 @@ func getServer(allServers DNSDSServers, v4 bool, serverAvailable map[tc.CacheNam
 	if !v4 {
 		servers = allServers.V6s
 	}
+	// fmt.Printf("DEBUG servers '%v' v4 %v server '%v'\n", allServers, v4, servers)
 	if len(servers) == 0 {
 		return DNSDSServer{}, false
 	} else if len(servers) == 1 {

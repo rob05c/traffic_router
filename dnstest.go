@@ -41,7 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// fmt.Printf("DEBUG crc.config: %+v\n", crc.Config)
+	// fmt.Printf("DEBUG crc.config '%v': %+v\n", cfg.CRConfigPath, crc.Config)
 
 	czfParsedNets, err := ParseCZNets(czf.CoverageZones)
 	if err != nil {
