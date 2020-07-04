@@ -17,14 +17,18 @@ This is still a prototype. It's incomplete, and missing many features of ATC Tra
 ### Implemented
 
 - DNS Delivery Service request handling
+- CRConfig loading of Delivery Services
+- Matching request FQDNs to Delivery Services
+- Coverage Zone file loading
+- Coverage Zone lookup and matching request IPs to their nearest Cache Group.
 - Initial HTTP DNS request handling (edge.ds-name.cdn-domain.example)
 - DNS handling for second HTTP lookup (edge-name.ds-name.cdn-domain.example)
 
 ### To Do
 
 - Add maxmind to geolocation (currently just coverage zone file)
-- Fix initial HTTP DNS req, which returns routers, to geo-locate and return closest, instead of random
-- Add returning multiple servers to DNS reqs (both DNS and initial-HTTP DSes), based on DS settings
+- Fix initial HTTP DNS request, which returns routers, to geo-locate and return closest, instead of random
+- Add returning multiple servers to DNS requests (both DNS and initial-HTTP DSes), based on DS settings
 - Add HTTP server for HTTP Delivery Service requests
 - DNSSEC
 - Add HTTP Certificate handling, for HTTP Delivery Services
