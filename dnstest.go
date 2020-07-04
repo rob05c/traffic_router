@@ -52,6 +52,10 @@ func main() {
 	parsedCZF := &ParsedCZF{Revision: czf.Revision, CustomerName: czf.CustomerName, CoverageZones: czfParsedNets}
 
 	shared := NewShared(parsedCZF, crc, crs)
+	if shared == nil {
+		fmt.Println("ERROR: fatal error creating Shared object, see log for details.")
+		os.Exit(1)
+	}
 
 	go func() {
 		srv := &dns.Server{Addr: ":" + strconv.Itoa(53), Net: "udp"}

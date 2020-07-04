@@ -121,18 +121,6 @@ func (ha *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(&msg)
 }
 
-func matchFQDN(fqdn string, matches []DSAndMatch) (tc.DeliveryServiceName, bool) {
-	// fmt.Printf("DEBUG matchFQDN len(matches) %v\n", len(matches))
-	for _, dsMatch := range matches {
-		for _, ma := range dsMatch.Matches {
-			if ma.Match(fqdn) {
-				return dsMatch.DS, true
-			}
-		}
-	}
-	return "", false
-}
-
 // getServer finds a server from the list, for the given IP type.
 // TODO consistent-hash DNSDSServers.
 // TODO use fallback CG if cg is unavailable.
