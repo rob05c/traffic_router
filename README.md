@@ -24,15 +24,16 @@ This is still a prototype. It's incomplete, and missing many features of ATC Tra
 - Initial HTTP DNS request handling (edge.ds-name.cdn-domain.example)
 - DNS handling for second HTTP lookup (edge-name.ds-name.cdn-domain.example)
 - SIGHUP hot config reloading
-- Initial HTTP server, server and config reloading exist but don't actually serve DSes yet.
+- HTTP server, for HTTP Delivery Services
 
 ### To Do
 
 - Add maxmind to geolocation (currently just coverage zone file)
 - Fix initial HTTP DNS request, which returns routers, to geo-locate and return closest, instead of random
 - Add returning multiple servers to DNS requests (both DNS and initial-HTTP DSes), based on DS settings
-- Add HTTP server for HTTP Delivery Service requests
 - DNSSEC
+- add HTTPS server
+- Add HTTP-to-HTTPS redirecting
 - Add HTTP Certificate handling, for HTTP Delivery Services
 - Client Steering
 - Add Capabilities handling

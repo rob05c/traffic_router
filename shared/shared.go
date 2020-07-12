@@ -119,6 +119,8 @@ func (sh *Shared) GetCRConfig() *tc.CRConfig {
 	return sh.crc
 }
 
+func (sh *Shared) GetCDNDomain() string { return sh.cdnDomain }
+
 type DNSDS struct {
 	Name string // TODO necesary?
 
@@ -405,18 +407,18 @@ func BuildServerAvailableFromCRStates(crs *tc.CRStates) map[tc.CacheName]bool {
 	return avail
 }
 
-// GetServerForDomain returns the IP of the server, whether to immediately return a refused (because the domain was not in the DS list), and whether to return a SERVFAIL (because there was a server error looking up the DS). Error messages are logged.
+// GetServerForDomain returns the IP of the cache, the cache hostname, the DS name, whether to immediately return a refused (because the domain was not in the DS list), and whether to return a SERVFAIL (because there was a server error looking up the DS). Error messages are logged.
 // TODO NXDOMAIN instead of refusing if it's a CDN domain e.g. top.comcast.net but just a nonexistent DS?
 // TODO change to return multiple IPs, depending on DS configuration.
-func (sh *Shared) GetServerForDomain(addr net.Addr, zone string, domain string, v4 bool) (string, bool, bool) {
+func (sh *Shared) GetServerForDomain(addr net.Addr, zone string, domain string, v4 bool) (string, string, string, bool, bool) {
 	if !strings.HasSuffix(domain, ".") {
 		fmt.Printf("EVENT: Request: %v czf zone '%v' requested A '%v' missing trailing '.' - returning Refused\n", addr.String(), zone, domain)
-		return "", true, false // "", refuse, no servfail
+		return "", "", "", true, false // "", refuse, no servfail
 	}
 	domain = domain[:len(domain)-1] // remove trailing . because we want to match without it
 	if !strings.HasSuffix(domain, sh.cdnDomain) {
 		fmt.Printf("EVENT: Request: %v czf zone '%v' requested A '%v' which we're not authoritative for, returning Refused\n", addr.String(), zone, domain)
-		return "", true, false // "", refuse, no servfail
+		return "", "", "", true, false // "", refuse, no servfail
 	}
 
 	// fastest lookup, so we do it first.
@@ -432,31 +434,36 @@ func (sh *Shared) GetServerForDomain(addr net.Addr, zone string, domain string, 
 	}
 
 	fmt.Printf("EVENT: Request: %v czf zone '%v' requested A '%v' - no DS match, returning Refused\n", addr.String(), zone, domain)
-	return "", true, false // "", refuse, no servfail
+	return "", "", "", true, false // "", refuse, no servfail
 }
 
-func (sh *Shared) GetServerName(cacheName tc.CacheName, v4 bool) (string, bool, bool) {
+func (sh *Shared) GetServerName(cacheName tc.CacheName, v4 bool) (string, string, string, bool, bool) {
+	// this is used for the second DNS lookup after an HTTP DS 302,
+	// so this will never be used by the HTTP Server, and the DNS server doesn't need a Names.
+	// TODO fix anyway, for safety. Make httpSecondDNSMatches contain the DS Name?
+	dsName := ""
 	// TODO make faster. This is in the request path, and can be easily optimized.
 	sv, ok := sh.crc.ContentServers[string(cacheName)]
 	if !ok {
 		// Should never happen. Maybe unless the CRConfig is malformed?
-		return "", false, true // "", no refuse, servfail
+		// TODO log
+		return "", "", "", false, true // "", no refuse, servfail
 	}
 	if v4 {
 		if sv.Ip == nil {
 			fmt.Printf("ERROR: client requested cache.ds.cdn A for server '%v' with no IPv4 address, returning Refused\n", string(cacheName))
-			return "", true, false // "", refuse, no servfail
+			return "", "", "", true, false // "", refuse, no servfail
 		}
 		// TODO parse IP to verify. Super-important, we REALLY don't want to give non-IPs to A reqs and heinously violate the DNS specs
-		return *sv.Ip, false, false // ip, no refuse, no servfail
+		return *sv.Ip, dsName, string(cacheName), false, false // ip, no refuse, no servfail
 	}
 
 	if sv.Ip6 == nil {
 		fmt.Printf("ERROR: client requested cache.ds.cdn AAAA for server '%v' with no IPv6 address, returning Refused\n", string(cacheName))
-		return "", true, false // "", refuse, no servfail
+		return "", "", "", true, false // "", refuse, no servfail
 	}
 	// TODO parse IP to verify. Super-important, we REALLY don't want to give non-IPs to A reqs and heinously violate the DNS specs
-	return *sv.Ip6, false, false // ip, no refuse, no servfail
+	return *sv.Ip6, string(cacheName), dsName, false, false // ip, no refuse, no servfail
 }
 
 func (sh *Shared) GetServerForDomainDNS(
@@ -465,12 +472,12 @@ func (sh *Shared) GetServerForDomainDNS(
 	domain string,
 	v4 bool,
 	dsName tc.DeliveryServiceName,
-) (string, bool, bool) {
+) (string, string, string, bool, bool) {
 	dsServers, ok := sh.dsServers[dsName]
 	if !ok {
 		// should never happen (we found a match, but it wasn't in the list of ds servers
 		fmt.Printf("EVENT: Request: %v czf zone %v requested A '%v' ds '%v' - match, but not in dsServers! should never happen! Returning ServFail\n", addr.String(), zone, domain, dsName, ok)
-		return "", false, true // "", no refuse, servfail
+		return "", "", "", false, true // "", no refuse, servfail
 	}
 
 	cg := tc.CacheGroupName(zone)
@@ -478,19 +485,61 @@ func (sh *Shared) GetServerForDomainDNS(
 	if !ok {
 		// we found a match, but there were no servers in the found cachegroup with an Edge on this DS.
 		fmt.Printf("EVENT: Request: %v czf zone %v requested A '%v' ds '%v' - match, but the requested DS had no servers in the matched cachegroup! Returning ServFail", addr.String(), zone, domain, dsName)
-		return "", false, true // "", no refuse, servfail
+		return "", "", "", false, true // "", no refuse, servfail
 	}
 
 	dsServer, ok := getServer(cgServers, v4, sh.serverAvailable)
 	if !ok {
 		// we found a match, but there were no servers of the requested IP type on the CG assigned to the DS.
 		fmt.Printf("EVENT: Request: %v czf zone %v requested A %v ds '%v' - match, but no servers of type IPv4=%v in the cg on the ds! Returning ServFail\n", addr.String(), zone, domain, dsName, ok, v4)
-		return "", false, true // "", no refuse, servfail
+		return "", "", "", false, true // "", no refuse, servfail
 	}
 
 	fmt.Printf("EVENT: Request: '%v' czf zone '%v' requested A '%v' ds '%v' matched server '%+v', returning\n", addr.String(), zone, domain, dsName, dsServer)
 
-	return dsServer.Addr, false, false // addr, no refuse, no servfail
+	return dsServer.Addr, string(dsServer.HostName), string(dsName), false, false // addr, no refuse, no servfail
+}
+
+// GetServerForDomainHTTP returns the server IP to return to the client, for the given HTTP DS' initial DNS request.
+//
+// Because it's an HTTP DS, the initial DNS request returns the IP of a Traffic Router
+// (which will then be requested over HTTP by the client, and which will return a 302 to a cache).
+//
+func (sh *Shared) GetServerForDomainHTTP(
+	addr net.Addr,
+	zone string,
+	domain string,
+	v4 bool,
+	dsName tc.DeliveryServiceName,
+) (string, string, string, bool, bool) {
+	// TODO add geolocation of routers
+	routersMap := sh.crc.ContentRouters
+	routers := []tc.CRConfigRouter{}
+	for _, router := range routersMap {
+		routers = append(routers, router)
+	}
+	if len(routers) == 0 {
+		// TODO log
+		return "", "", "", false, true // "", no refuse, servfail - no routers = servfail. Also wtf, we're a router!?!
+	}
+
+	// If Routers had regular cache CGs, we could get the right CG here.
+	// Since they don't, put all CGs in one big array to get.
+	// TODO put self first (since the client got to us first in DNS, self should be nearest)
+
+	allRouters := combineCGRouters(sh.cgRouters)
+	router, ok := getRouter(allRouters, v4)
+
+	if !ok {
+		fmt.Printf("EVENT: Request: '%v' czf zone '%v' requested A '%v' http ds '%v' matched no router, returning servfail!\n", addr.String(), zone, domain, dsName)
+		return "", "", "", false, true // "", no refuse, servfail
+	}
+	// TODO add Fallback CG failover
+	// TODO if Fallback also fails, return self. Obviously.
+
+	fmt.Printf("EVENT: Request: '%v' czf zone '%v' requested A '%v' http ds '%v' matched router server '%+v', returning\n", addr.String(), zone, domain, dsName, router)
+
+	return router.Addr, string(router.HostName), string(dsName), false, false // addr, no refuse, no servfail
 }
 
 // getServer finds a server from the list, for the given IP type.
@@ -525,47 +574,6 @@ func getServer(allServers DNSDSServers, v4 bool, serverAvailable map[tc.CacheNam
 	}
 
 	return servers[randI], true
-}
-
-// GetServerForDomainHTTP returns the server IP to return to the client, for the given HTTP DS' initial DNS request.
-//
-// Because it's an HTTP DS, the initial DNS request returns the IP of a Traffic Router
-// (which will then be requested over HTTP by the client, and which will return a 302 to a cache).
-//
-func (sh *Shared) GetServerForDomainHTTP(
-	addr net.Addr,
-	zone string,
-	domain string,
-	v4 bool,
-	dsName tc.DeliveryServiceName,
-) (string, bool, bool) {
-	// TODO add geolocation of routers
-	routersMap := sh.crc.ContentRouters
-	routers := []tc.CRConfigRouter{}
-	for _, router := range routersMap {
-		routers = append(routers, router)
-	}
-	if len(routers) == 0 {
-		return "", false, true // "", no refuse, servfail - no routers = servfail. Also wtf, we're a router!?!
-	}
-
-	// If Routers had regular cache CGs, we could get the right CG here.
-	// Since they don't, put all CGs in one big array to get.
-	// TODO put self first (since the client got to us first in DNS, self should be nearest)
-
-	allRouters := combineCGRouters(sh.cgRouters)
-	router, ok := getRouter(allRouters, v4)
-
-	if !ok {
-		fmt.Printf("EVENT: Request: '%v' czf zone '%v' requested A '%v' http ds '%v' matched no router, returning servfail!\n", addr.String(), zone, domain, dsName)
-		return "", false, true // "", no refuse, servfail
-	}
-	// TODO add Fallback CG failover
-	// TODO if Fallback also fails, return self. Obviously.
-
-	fmt.Printf("EVENT: Request: '%v' czf zone '%v' requested A '%v' http ds '%v' matched router server '%+v', returning\n", addr.String(), zone, domain, dsName, router)
-
-	return router.Addr, false, false // addr, no refuse, no servfail
 }
 
 func getRouter(allServers DNSDSServers, v4 bool) (DNSDSServer, bool) {

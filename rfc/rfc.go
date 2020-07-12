@@ -1,5 +1,7 @@
 package rfc
 
+const HdrLocation = "Location"
+
 // ValidFQDN returns whether str is a valid RFC1035§2.3.1 Fully Qualified Domain Name.
 func ValidFQDN(str string) bool {
 	// TODO move to lib/go-rfc

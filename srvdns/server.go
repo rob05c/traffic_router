@@ -34,7 +34,7 @@ func (ha *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		switch question.Qtype {
 		case dns.TypeA:
 			v4 := true // A record => v4
-			serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+			serverAddr, _, _, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
 			if servFail {
 				msg.Rcode = dns.RcodeServerFailure
 				w.WriteMsg(&msg)
@@ -51,7 +51,7 @@ func (ha *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			})
 		case dns.TypeAAAA:
 			v4 := false // A record => v4
-			serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+			serverAddr, _, _, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
 			if servFail {
 				msg.Rcode = dns.RcodeServerFailure
 				w.WriteMsg(&msg)
@@ -72,7 +72,7 @@ func (ha *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			// TODO remove duplicate code
 			{
 				v4 := true // A record => v4
-				serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+				serverAddr, _, _, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
 				if servFail {
 					msg.Rcode = dns.RcodeServerFailure
 					w.WriteMsg(&msg)
@@ -90,7 +90,7 @@ func (ha *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 			{
 				v4 := false // A record => v4
-				serverAddr, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
+				serverAddr, _, _, refuse, servFail := ha.Shared.GetServerForDomain(clientAddr, zone, domain, v4)
 				if servFail {
 					msg.Rcode = dns.RcodeServerFailure
 					w.WriteMsg(&msg)
