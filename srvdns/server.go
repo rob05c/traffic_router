@@ -1,20 +1,19 @@
-package main
+package srvdns
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 
-	"github.com/apache/trafficcontrol/lib/go-tc"
+	"github.com/rob05c/traffic_router/shared"
 
 	"github.com/miekg/dns"
 )
 
-type Handler struct {
-	Shared *Shared
+type Server struct {
+	Shared *shared.Shared
 }
 
-func (ha *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (ha *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	clientAddr := w.RemoteAddr()
 
 	zone := "" // zone == cachegroup
@@ -119,38 +118,4 @@ func (ha *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	msg.Authoritative = true
 	w.WriteMsg(&msg)
-}
-
-// getServer finds a server from the list, for the given IP type.
-// TODO consistent-hash DNSDSServers.
-// TODO use fallback CG if cg is unavailable.
-func getServer(allServers DNSDSServers, v4 bool, serverAvailable map[tc.CacheName]bool) (DNSDSServer, bool) {
-	servers := allServers.V4s
-	if !v4 {
-		servers = allServers.V6s
-	}
-	// fmt.Printf("DEBUG servers '%v' v4 %v server '%v'\n", allServers, v4, servers)
-	if len(servers) == 0 {
-		return DNSDSServer{}, false
-	} else if len(servers) == 1 {
-		return servers[0], true // must check, because math.Intn(0) panics.
-	}
-
-	randI := rand.Intn(len(servers) - 1)
-	startI := randI
-	sv := servers[randI]
-	for {
-		if serverAvailable[sv.HostName] {
-			break
-		}
-		randI++
-		if randI == len(servers) {
-			randI = 0 // loop around if we're at the end
-		}
-		if randI == startI {
-			return DNSDSServer{}, false // we looped over all servers, and none were available
-		}
-	}
-
-	return servers[randI], true
 }

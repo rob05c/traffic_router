@@ -3,10 +3,17 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/miekg/dns"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
+
+	"github.com/rob05c/traffic_router/loadconfig"
+	"github.com/rob05c/traffic_router/srvdns"
+	"github.com/rob05c/traffic_router/srvhttp"
+	"github.com/rob05c/traffic_router/srvsighupreload"
+
+	"github.com/miekg/dns"
 )
 
 func main() {
@@ -17,59 +24,53 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := LoadConfig(*cfgFile)
+	shared, err := loadconfig.LoadConfig(*cfgFile)
 	if err != nil {
 		fmt.Println("Error loading config file '" + *cfgFile + "': " + err.Error())
 		os.Exit(1)
 	}
 
-	czf, err := LoadCZF(cfg.CZFPath)
-	if err != nil {
-		fmt.Println("Error loading czf file '" + cfg.CZFPath + "': " + err.Error())
-		os.Exit(1)
-	}
-
-	crc, err := LoadCRConfig(cfg.CRConfigPath)
-	if err != nil {
-		fmt.Println("Error loading CRConfig file '" + cfg.CRConfigPath + "': " + err.Error())
-		os.Exit(1)
-	}
-
-	crs, err := LoadCRStates(cfg.CRStatesPath)
-	if err != nil {
-		fmt.Println("Error loading CRStates file '" + cfg.CRStatesPath + "': " + err.Error())
-		os.Exit(1)
-	}
-
-	// fmt.Printf("DEBUG crc.config '%v': %+v\n", cfg.CRConfigPath, crc.Config)
-
-	czfParsedNets, err := ParseCZNets(czf.CoverageZones)
-	if err != nil {
-		fmt.Println("Error parsing czf networks '" + cfg.CZFPath + "': " + err.Error())
-		os.Exit(1)
-	}
-
-	parsedCZF := &ParsedCZF{Revision: czf.Revision, CustomerName: czf.CustomerName, CoverageZones: czfParsedNets}
-
-	shared := NewShared(parsedCZF, crc, crs)
-	if shared == nil {
-		fmt.Println("ERROR: fatal error creating Shared object, see log for details.")
-		os.Exit(1)
-	}
+	dnsSvr := srvdns.NewPtr(&srvdns.Server{Shared: shared})
+	httpSvr := srvhttp.NewPtr(&srvhttp.Server{Shared: shared})
 
 	go func() {
-		srv := &dns.Server{Addr: ":" + strconv.Itoa(53), Net: "udp"}
-		srv.Handler = &Handler{Shared: shared}
-		fmt.Println("Serving UDP...")
+		srv := &dns.Server{
+			Addr:    ":" + strconv.Itoa(53),
+			Net:     "udp",
+			Handler: dnsSvr,
+		}
+		fmt.Println("Serving DNS UDP...")
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatalf("Failed to set udp listener %s\n", err.Error())
+		}
+	}()
+	go func() {
+		srv := &dns.Server{
+			Addr:    ":" + strconv.Itoa(53),
+			Net:     "tcp",
+			Handler: dnsSvr,
+		}
+		fmt.Println("Serving DNS TCP...")
 		if err := srv.ListenAndServe(); err != nil {
 			log.Fatalf("Failed to set udp listener %s\n", err.Error())
 		}
 	}()
 
-	srv := &dns.Server{Addr: ":" + strconv.Itoa(53), Net: "tcp"}
-	srv.Handler = &Handler{Shared: shared}
-	fmt.Println("Serving TCP...")
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to set udp listener %s\n", err.Error())
-	}
+	go func() {
+		svr := &http.Server{
+			Handler: httpSvr,
+			//			TLSConfig:    tlsConfig,
+			Addr: fmt.Sprintf(":%d", 80), // TODO make configurable
+			// ConnState: connState,
+			// IdleTimeout:  idleTimeout,
+			// ReadTimeout:  readTimeout,
+			// WriteTimeout: writeTimeout,
+		}
+		fmt.Println("Serving HTTP...")
+		if err := svr.ListenAndServe(); err != nil {
+			log.Fatalf("ERROR: HTTP listener %s\n", err.Error())
+		}
+	}()
+
+	srvsighupreload.Listen(*cfgFile, dnsSvr, httpSvr)
 }

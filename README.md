@@ -23,6 +23,8 @@ This is still a prototype. It's incomplete, and missing many features of ATC Tra
 - Coverage Zone lookup and matching request IPs to their nearest Cache Group.
 - Initial HTTP DNS request handling (edge.ds-name.cdn-domain.example)
 - DNS handling for second HTTP lookup (edge-name.ds-name.cdn-domain.example)
+- SIGHUP hot config reloading
+- Initial HTTP server, server and config reloading exist but don't actually serve DSes yet.
 
 ### To Do
 

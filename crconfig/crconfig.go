@@ -1,4 +1,4 @@
-package main
+package crconfig
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package main
+package czf
 
 import (
 	"encoding/json"

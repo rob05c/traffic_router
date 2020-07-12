@@ -1,8 +1,9 @@
-package main
+package match
 
 import (
 	"errors"
 	"fmt"
+	"github.com/rob05c/traffic_router/rfc"
 	"regexp"
 	"strings"
 )
@@ -12,7 +13,7 @@ import (
 func NewDNSDSMatch(matchStr string) (DNSDSMatch, error) {
 	if strings.HasPrefix(matchStr, `.*\.`) && strings.HasSuffix(matchStr, `\..*`) {
 		return dnsDSMatchContains{str: strings.TrimSuffix(strings.TrimPrefix(matchStr, `.*\.`), `\..*`)}, nil
-	} else if ValidFQDN(matchStr) {
+	} else if rfc.ValidFQDN(matchStr) {
 		// If the match string is a valid FQDN, we assume it's not a regex.
 		// Be aware it could still be a regex, and e.g. 'foo.bar.com' could be actually wanting to match those dots as anything, e.g. match 'fooabar.com'.
 		// But that would be very strange.
@@ -37,7 +38,7 @@ func NewHTTPDSMatch(matchStr string, routingName string, cdnDomain string) (DNSD
 		matchStr = routingName + "." + matchStr + "." + cdnDomain
 		fmt.Println("DEBUG HTTP DS match literal '" + matchStr + "'")
 		return dnsDSMatchLiteral{str: matchStr}, nil
-	} else if ValidFQDN(matchStr) {
+	} else if rfc.ValidFQDN(matchStr) {
 		// If the match string is a valid FQDN, we assume it's not a regex.
 		// Be aware it could still be a regex, and e.g. 'foo.bar.com' could be actually wanting to match those dots as anything, e.g. match 'fooabar.com'.
 		// But that would be very strange.
