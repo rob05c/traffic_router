@@ -9,6 +9,7 @@ package shared
 //
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -56,12 +57,13 @@ type Shared struct {
 	serverAvailable map[tc.CacheName]bool
 	// cdnDomain is the config/domain_name in the CRConfig, the TLD of the CDN.
 	cdnDomain string
+	certs     map[string]*tls.Certificate
 }
 
 // NewShared creates a new Shared data object.
 // Logs all errors, fatal and non-fatal.
 // On fatal error, returns nil
-func NewShared(czf *czf.ParsedCZF, crc *tc.CRConfig, crs *tc.CRStates) *Shared {
+func NewShared(czf *czf.ParsedCZF, crc *tc.CRConfig, crs *tc.CRStates, certs map[string]*tls.Certificate) *Shared {
 	// TODO pre fetch and cache this, for performance. This is in the request path.
 	//      Also, validate. Make sure it exists, is a valid FQDN, not empty, etc.
 	iCDNDomain, ok := crc.Config["domain_name"] // : "top.comcast.net",
@@ -98,6 +100,8 @@ func NewShared(czf *czf.ParsedCZF, crc *tc.CRConfig, crs *tc.CRStates) *Shared {
 	}
 
 	sh.serverAvailable = BuildServerAvailableFromCRStates(crs)
+
+	sh.certs = certs
 	return sh
 }
 
@@ -108,6 +112,10 @@ func NewShared(czf *czf.ParsedCZF, crc *tc.CRConfig, crs *tc.CRStates) *Shared {
 //
 func (sh *Shared) GetCZF() *czf.ParsedCZF {
 	return sh.czf
+}
+
+func (sh *Shared) GetCerts() map[string]*tls.Certificate {
+	return sh.certs
 }
 
 // GetCRConfig gets the Content Router Config (CRConfig).

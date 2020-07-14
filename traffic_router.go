@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -32,6 +33,9 @@ func main() {
 
 	dnsSvr := srvdns.NewPtr(&srvdns.Server{Shared: shared})
 	httpSvr := srvhttp.NewPtr(&srvhttp.Server{Shared: shared})
+
+	// TODO add default cert, for when no match is found
+	certGetter := &srvhttp.CertGetter{}
 
 	go func() {
 		srv := &dns.Server{
@@ -72,5 +76,31 @@ func main() {
 		}
 	}()
 
-	srvsighupreload.Listen(*cfgFile, dnsSvr, httpSvr)
+	go func() {
+		tlsConfig := &tls.Config{
+			GetCertificate: srvhttp.MakeGetCertificateFunc(certGetter),
+		}
+
+		svr := &http.Server{
+			Handler:   httpSvr,
+			TLSConfig: tlsConfig,
+			Addr:      fmt.Sprintf(":%d", 443), // TODO make configurable
+			// ConnState: connState,
+			// IdleTimeout:  idleTimeout,
+			// ReadTimeout:  readTimeout,
+			// WriteTimeout: writeTimeout,
+		}
+
+		listener, err := tls.Listen("tcp", fmt.Sprintf(":%d", 443), tlsConfig)
+		if err != nil {
+			log.Fatalf("ERROR: HTTPS listener %s\n", err.Error())
+		}
+
+		fmt.Println("Serving HTTPS...")
+		if err := svr.Serve(listener); err != nil {
+			log.Fatalf("ERROR: HTTP server %s\n", err.Error())
+		}
+	}()
+
+	srvsighupreload.Listen(*cfgFile, dnsSvr, httpSvr, certGetter)
 }

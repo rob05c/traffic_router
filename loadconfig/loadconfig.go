@@ -41,7 +41,12 @@ func LoadConfig(path string) (*shared.Shared, error) {
 
 	parsedCZF := &czf.ParsedCZF{Revision: czfRaw.Revision, CustomerName: czfRaw.CustomerName, CoverageZones: czfParsedNets}
 
-	sharedPtr := shared.NewShared(parsedCZF, crc, crs)
+	certs, err := config.LoadCerts(cfg.CertDir)
+	if err != nil {
+		return nil, errors.New("loading certificates from dir '" + cfg.CertDir + "': " + err.Error())
+	}
+
+	sharedPtr := shared.NewShared(parsedCZF, crc, crs, certs)
 	if sharedPtr == nil {
 		return nil, errors.New("fatal error creating Shared object, see log for details.")
 	}
