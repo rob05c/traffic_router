@@ -18,7 +18,9 @@ type Config struct {
 	// CertDir is the directory of HTTPS Certificates.
 	// Certificates must be key and cert file pairs, named fqdn.crt and fqdn.key.
 	// Wildcard certificates should use a # for the wildcard (since * is not a valid filename on some operating systems). For example, '#.example.net.crt'.
-	CertDir string `json:"cert_dir"`
+	CertDir                string   `json:"cert_dir"`
+	Monitors               []string `json:"monitor_fqdns"`
+	CRStatesPollIntervalMS int      `json:"crstates_poll_interval_ms"`
 }
 
 func LoadConfig(path string) (Config, error) {

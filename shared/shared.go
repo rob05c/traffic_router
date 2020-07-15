@@ -15,6 +15,8 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"sync/atomic"
+	"unsafe"
 
 	"github.com/apache/trafficcontrol/lib/go-tc"
 	"github.com/apache/trafficcontrol/lib/go-util"
@@ -58,6 +60,18 @@ type Shared struct {
 	// cdnDomain is the config/domain_name in the CRConfig, the TLD of the CDN.
 	cdnDomain string
 	certs     map[string]*tls.Certificate
+
+	crStates *unsafe.Pointer
+}
+
+func (sh *Shared) GetCRStates() *tc.CRStates {
+	crStates := (*tc.CRStates)(atomic.LoadPointer(sh.crStates))
+	return crStates
+}
+
+func (sh *Shared) SetCRStates(crStates *tc.CRStates) {
+	ptr := (unsafe.Pointer)(crStates)
+	atomic.StorePointer(sh.crStates, ptr)
 }
 
 // NewShared creates a new Shared data object.

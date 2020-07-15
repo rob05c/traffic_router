@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/rob05c/traffic_router/loadconfig"
+	"github.com/rob05c/traffic_router/pollercrstates"
 	"github.com/rob05c/traffic_router/srvdns"
 	"github.com/rob05c/traffic_router/srvhttp"
 	"github.com/rob05c/traffic_router/srvsighupreload"
@@ -25,9 +27,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	shared, err := loadconfig.LoadConfig(*cfgFile)
+	shared, cfg, err := loadconfig.LoadConfig(*cfgFile)
 	if err != nil {
 		fmt.Println("Error loading config file '" + *cfgFile + "': " + err.Error())
+		os.Exit(1)
+	}
+
+	crStatesPoller := &pollercrstates.Poller{
+		Monitors: cfg.Monitors,
+		Shared:   shared,
+		Interval: time.Duration(cfg.CRStatesPollIntervalMS) * time.Millisecond,
+	}
+
+	if err := crStatesPoller.Start(); err != nil {
+		fmt.Println("Error starting CRStates poller: " + err.Error())
 		os.Exit(1)
 	}
 
@@ -102,5 +115,5 @@ func main() {
 		}
 	}()
 
-	srvsighupreload.Listen(*cfgFile, dnsSvr, httpSvr, certGetter)
+	srvsighupreload.Listen(*cfgFile, dnsSvr, httpSvr, certGetter, crStatesPoller)
 }
