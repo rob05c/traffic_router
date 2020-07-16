@@ -21,6 +21,7 @@ type Config struct {
 	CertDir                string   `json:"cert_dir"`
 	Monitors               []string `json:"monitor_fqdns"`
 	CRStatesPollIntervalMS int      `json:"crstates_poll_interval_ms"`
+	CRConfigPollIntervalMS int      `json:"crconfig_poll_interval_ms"`
 }
 
 func LoadConfig(path string) (Config, error) {

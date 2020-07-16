@@ -1,4 +1,4 @@
-package pollercrstates
+package pollercrconfig
 
 import (
 	"encoding/json"
@@ -45,29 +45,29 @@ func (po *IPoller) Poll() {
 	}
 
 	triedMonitors := 0
-	crStates := &tc.CRStates{}
+	crConfig := &tc.CRConfig{}
 	for {
 		if triedMonitors == len(po.Monitors) {
-			fmt.Println("ERROR: CRITICAL! pollercrstates: all monitors failed, CRStates Poll failed! Trying again after interval.")
+			fmt.Println("ERROR: CRITICAL! pollercrconfig: all monitors failed, CRConfig Poll failed! Trying again after interval.")
 		}
 
 		monitorFQDN := po.Monitors[po.currentMonitor]
-		urlStr := "http://" + monitorFQDN + "/publish/CrStates"
+		urlStr := "http://" + monitorFQDN + "/publish/CrConfig"
 		resp, err := http.Get(urlStr) // TODO use client, add timeouts
 		po.currentMonitor = (po.currentMonitor + 1) % len(po.Monitors)
 		triedMonitors++
 		if err != nil {
-			fmt.Println("ERROR: pollercrstates: getting CRStates from monitor '" + monitorFQDN + "', trying next monitor: " + err.Error())
+			fmt.Println("ERROR: pollercrconfig: getting CRConfig from monitor '" + monitorFQDN + "', trying next monitor: " + err.Error())
 			continue
 		}
 		defer resp.Body.Close()
 
-		if err := json.NewDecoder(resp.Body).Decode(crStates); err != nil {
-			fmt.Println("ERROR: pollercrstates: decoding CRStates from monitor '" + monitorFQDN + "', trying next monitor: " + err.Error())
+		if err := json.NewDecoder(resp.Body).Decode(crConfig); err != nil {
+			fmt.Println("ERROR: pollercrstates: decoding CRConfig from monitor '" + monitorFQDN + "', trying next monitor: " + err.Error())
 			resp.Body.Close() // optimization
 			continue
 		}
 		break
 	}
-	po.Shared.SetCRStates(crStates)
+	po.Shared.SetCRConfig(crConfig)
 }

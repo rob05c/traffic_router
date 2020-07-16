@@ -26,11 +26,11 @@ This is still a prototype. It's incomplete, and missing many features of ATC Tra
 - SIGHUP hot config reloading
 - HTTP server, for HTTP Delivery Services
 - HTTPS server (untested), with hot reloading of certificates when DSes change without stopping the server
-- CRStates polling
+- CRStates polling (untested)
+- CRConfig polling (untested)
 
 ### To Do
 
-- Add CRConfig polling
 - Add maxmind to geolocation (currently just coverage zone file)
 - Add Deep CZF coverage zone file
 - Fix initial HTTP DNS request, which returns routers, to geo-locate and return closest, instead of random

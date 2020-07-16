@@ -10,6 +10,8 @@ import (
 
 	"github.com/rob05c/traffic_router/config"
 	"github.com/rob05c/traffic_router/loadconfig"
+	"github.com/rob05c/traffic_router/poller"
+	"github.com/rob05c/traffic_router/pollercrconfig"
 	"github.com/rob05c/traffic_router/pollercrstates"
 	"github.com/rob05c/traffic_router/shared"
 	"github.com/rob05c/traffic_router/srvdns"
@@ -25,7 +27,10 @@ func Listen(
 	dnsServer *srvdns.ServerPtr,
 	httpServer *srvhttp.ServerPtr,
 	certGetter *srvhttp.CertGetter,
-	crStatesPoller *pollercrstates.Poller,
+	crStatesPoller *poller.Poller,
+	crStatesIPoller *pollercrstates.IPoller,
+	crConfigPoller *poller.Poller,
+	crConfigIPoller *pollercrconfig.IPoller,
 ) {
 	// TODO add the abiliity to change ports.
 	//      (will require stopping the old servers and creating new ones, presumably passing in pointers to them)
@@ -33,7 +38,16 @@ func Listen(
 	sig := unix.SIGHUP
 	signal.Notify(c, sig)
 	for range c {
-		TryReloadConfig(filename, dnsServer, httpServer, certGetter, crStatesPoller)
+		TryReloadConfig(
+			filename,
+			dnsServer,
+			httpServer,
+			certGetter,
+			crStatesPoller,
+			crStatesIPoller,
+			crConfigPoller,
+			crConfigIPoller,
+		)
 	}
 }
 
@@ -44,7 +58,11 @@ func TryReloadConfig(
 	dnsServer *srvdns.ServerPtr,
 	httpServer *srvhttp.ServerPtr,
 	certGetter *srvhttp.CertGetter,
-	crStatesPoller *pollercrstates.Poller,
+	crStatesPoller *poller.Poller,
+	crStatesIPoller *pollercrstates.IPoller,
+	crConfigPoller *poller.Poller,
+	crConfigIPoller *pollercrconfig.IPoller,
+
 ) {
 	shared, cfg, err := loadconfig.LoadConfig(fileName)
 	if err != nil {
@@ -53,7 +71,8 @@ func TryReloadConfig(
 	}
 
 	UpdateCerts(shared.GetCerts(), certGetter)
-	UpdateCRStatesPoller(crStatesPoller, cfg, shared)
+	UpdateCRStatesPoller(crStatesPoller, crStatesIPoller, cfg, shared)
+	UpdateCRConfigPoller(crConfigPoller, crConfigIPoller, cfg, shared)
 	dnsServer.Set(&srvdns.Server{Shared: shared})
 	httpServer.Set(&srvhttp.Server{Shared: shared})
 	fmt.Println("INFO reloaded config file")
@@ -75,17 +94,32 @@ func UpdateCerts(certs map[string]*tls.Certificate, certGetter *srvhttp.CertGett
 	}
 }
 
-func UpdateCRStatesPoller(crStatesPoller *pollercrstates.Poller, cfg *config.Config, shared *shared.Shared) {
+func UpdateCRStatesPoller(crStatesPoller *poller.Poller, crStatesIPoller *pollercrstates.IPoller, cfg *config.Config, shared *shared.Shared) {
 	if err := crStatesPoller.Stop(); err != nil {
 		fmt.Println("ERROR: updating CRStates Poller: stopping: " + err.Error())
 	}
 
-	crStatesPoller.Monitors = cfg.Monitors
-	crStatesPoller.Shared = shared
+	crStatesIPoller.Monitors = cfg.Monitors
+	crStatesIPoller.Shared = shared
 	crStatesPoller.Interval = time.Duration(cfg.CRStatesPollIntervalMS) * time.Millisecond
 
 	if err := crStatesPoller.Start(); err != nil {
 		fmt.Println("ERROR: updating CRStates Poller: starting: " + err.Error())
+		// TODO fatal?
+	}
+}
+
+func UpdateCRConfigPoller(crConfigPoller *poller.Poller, crConfigIPoller *pollercrconfig.IPoller, cfg *config.Config, shared *shared.Shared) {
+	if err := crConfigPoller.Stop(); err != nil {
+		fmt.Println("ERROR: updating CRStates Poller: stopping: " + err.Error())
+	}
+
+	crConfigIPoller.Monitors = cfg.Monitors
+	crConfigIPoller.Shared = shared
+	crConfigPoller.Interval = time.Duration(cfg.CRConfigPollIntervalMS) * time.Millisecond
+
+	if err := crConfigPoller.Start(); err != nil {
+		fmt.Println("ERROR: updating CRConfig Poller: starting: " + err.Error())
 		// TODO fatal?
 	}
 }

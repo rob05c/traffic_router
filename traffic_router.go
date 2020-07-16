@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rob05c/traffic_router/loadconfig"
+	"github.com/rob05c/traffic_router/pollercrconfig"
 	"github.com/rob05c/traffic_router/pollercrstates"
 	"github.com/rob05c/traffic_router/srvdns"
 	"github.com/rob05c/traffic_router/srvhttp"
@@ -33,14 +34,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	crStatesPoller := &pollercrstates.Poller{
-		Monitors: cfg.Monitors,
-		Shared:   shared,
-		Interval: time.Duration(cfg.CRStatesPollIntervalMS) * time.Millisecond,
-	}
+	crStatesPollInterval := time.Duration(cfg.CRStatesPollIntervalMS) * time.Millisecond
+	crStatesPoller, crStatesIPoller := pollercrstates.MakePoller(crStatesPollInterval, cfg.Monitors, shared)
+
+	crConfigPollInterval := time.Duration(cfg.CRConfigPollIntervalMS) * time.Millisecond
+	crConfigPoller, crConfigIPoller := pollercrconfig.MakePoller(crConfigPollInterval, cfg.Monitors, shared)
 
 	if err := crStatesPoller.Start(); err != nil {
 		fmt.Println("Error starting CRStates poller: " + err.Error())
+		os.Exit(1)
+	}
+
+	if err := crConfigPoller.Start(); err != nil {
+		fmt.Println("Error starting CRConfig poller: " + err.Error())
 		os.Exit(1)
 	}
 
@@ -115,5 +121,14 @@ func main() {
 		}
 	}()
 
-	srvsighupreload.Listen(*cfgFile, dnsSvr, httpSvr, certGetter, crStatesPoller)
+	srvsighupreload.Listen(
+		*cfgFile,
+		dnsSvr,
+		httpSvr,
+		certGetter,
+		crStatesPoller,
+		crStatesIPoller,
+		crConfigPoller,
+		crConfigIPoller,
+	)
 }

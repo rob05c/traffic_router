@@ -41,8 +41,6 @@ type Shared struct {
 	// czf matches client IPs via CIDR to Cachegroups.
 	// TODO make atomic, when it's updated by a listener.
 	czf *czf.ParsedCZF
-	// crc is the CRConfig from Traffic Ops
-	crc *tc.CRConfig
 	// dnsMatches matches client request FQDN to DS name, for DNS DSes
 	dnsMatches DSMatches
 	// httpDNSMatches matches client request FQDN to DS name, for the initial DNS request for an HTTP DS.
@@ -62,6 +60,7 @@ type Shared struct {
 	certs     map[string]*tls.Certificate
 
 	crStates *unsafe.Pointer
+	crConfig *unsafe.Pointer
 }
 
 func (sh *Shared) GetCRStates() *tc.CRStates {
@@ -72,6 +71,21 @@ func (sh *Shared) GetCRStates() *tc.CRStates {
 func (sh *Shared) SetCRStates(crStates *tc.CRStates) {
 	ptr := (unsafe.Pointer)(crStates)
 	atomic.StorePointer(sh.crStates, ptr)
+}
+
+// GetCRConfig gets the Content Router Config (CRConfig).
+// The returned CRConfig MUST NOT be modified.
+//
+// Safe for use by handlers.
+//
+func (sh *Shared) GetCRConfig() *tc.CRConfig {
+	crConfig := (*tc.CRConfig)(atomic.LoadPointer(sh.crConfig))
+	return crConfig
+}
+
+func (sh *Shared) SetCRConfig(crConfig *tc.CRConfig) {
+	ptr := (unsafe.Pointer)(crConfig)
+	atomic.StorePointer(sh.crConfig, ptr)
 }
 
 // NewShared creates a new Shared data object.
@@ -93,7 +107,10 @@ func NewShared(czf *czf.ParsedCZF, crc *tc.CRConfig, crs *tc.CRStates, certs map
 		return nil
 	}
 
-	sh := &Shared{czf: czf, crc: crc, cdnDomain: cdnDomain}
+	sh := &Shared{czf: czf, cdnDomain: cdnDomain}
+	sh.SetCRStates(crs)
+	sh.SetCRConfig(crc)
+
 	err := error(nil)
 	if sh.dnsMatches, sh.httpDNSMatches, err = BuildMatchesFromCRConfig(crc, cdnDomain); err != nil {
 		fmt.Printf("Error building DS Matches from CRConfig: " + err.Error())
@@ -130,15 +147,6 @@ func (sh *Shared) GetCZF() *czf.ParsedCZF {
 
 func (sh *Shared) GetCerts() map[string]*tls.Certificate {
 	return sh.certs
-}
-
-// GetCRConfig gets the Content Router Config (CRConfig).
-// The returned CRConfig MUST NOT be modified.
-//
-// Safe for use by handlers.
-//
-func (sh *Shared) GetCRConfig() *tc.CRConfig {
-	return sh.crc
 }
 
 func (sh *Shared) GetCDNDomain() string { return sh.cdnDomain }
@@ -465,7 +473,7 @@ func (sh *Shared) GetServerName(cacheName tc.CacheName, v4 bool) (string, string
 	// TODO fix anyway, for safety. Make httpSecondDNSMatches contain the DS Name?
 	dsName := ""
 	// TODO make faster. This is in the request path, and can be easily optimized.
-	sv, ok := sh.crc.ContentServers[string(cacheName)]
+	sv, ok := sh.GetCRConfig().ContentServers[string(cacheName)]
 	if !ok {
 		// Should never happen. Maybe unless the CRConfig is malformed?
 		// TODO log
@@ -535,7 +543,7 @@ func (sh *Shared) GetServerForDomainHTTP(
 	dsName tc.DeliveryServiceName,
 ) (string, string, string, bool, bool) {
 	// TODO add geolocation of routers
-	routersMap := sh.crc.ContentRouters
+	routersMap := sh.GetCRConfig().ContentRouters
 	routers := []tc.CRConfigRouter{}
 	for _, router := range routersMap {
 		routers = append(routers, router)
